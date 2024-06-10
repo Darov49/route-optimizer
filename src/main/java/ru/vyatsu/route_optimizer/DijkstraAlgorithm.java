@@ -20,33 +20,41 @@ public class DijkstraAlgorithm {
         this.graph = graph;
         this.distances = new HashMap<>();
         this.previous = new HashMap<>();
-        this.queue = new PriorityQueue<>(Comparator.comparingInt(vertex -> distances.getOrDefault(vertex.getId(), Integer.MAX_VALUE)));
+        this.queue = new PriorityQueue<>(Comparator.comparingInt(
+                vertex -> distances.getOrDefault(vertex.getId(), Integer.MAX_VALUE)));
         this.processed = new HashSet<>();
         this.routeNumbers = new HashMap<>();
     }
 
     public void execute(String startVertexId, String startTime) {
+        // Конвертация времени в минуты
         int startMinutes = convertTimeToMinutes(startTime);
+
         distances.put(startVertexId, startMinutes);
         queue.add(graph.getVertex(startVertexId));
 
         while (!queue.isEmpty()) {
             Vertex currentVertex = queue.poll();
-            if (processed.contains(currentVertex.getId())) continue;
+            if (processed.contains(currentVertex.getId())) {
+                continue;
+            }
             processed.add(currentVertex.getId());
 
             int currentTime = distances.getOrDefault(currentVertex.getId(), Integer.MAX_VALUE);
-            String currentRoute = routeNumbers.getOrDefault(currentVertex.getId(), null);
 
             if (graph.getEdges().containsKey(currentVertex.getId())) {
                 for (Edge edge : graph.getEdges().get(currentVertex.getId())) {
                     Vertex nextVertex = graph.getVertex(edge.getEndVertex());
-                    if (nextVertex == null) continue;
+                    if (nextVertex == null) {
+                        continue;
+                    }
 
+                    // Расчет времени ожидания маршрута (в случае пересадки) и времени в пути
                     int waitTime = calculateWaitTime(currentVertex, edge, currentTime);
                     int travelTime = calculateTravelTime(currentVertex, nextVertex, edge, currentTime);
                     int newDist = currentTime + waitTime + travelTime;
 
+                    // Новый путь оптимальнее
                     if (travelTime > 0 && newDist < distances.getOrDefault(nextVertex.getId(), Integer.MAX_VALUE)) {
                         distances.put(nextVertex.getId(), newDist);
                         previous.put(nextVertex.getId(), currentVertex.getId());
@@ -65,18 +73,23 @@ public class DijkstraAlgorithm {
         for (Schedule schedule : schedules) {
             if (schedule.getRouteNumber().equals(edge.getRouteNumber())) {
                 for (String time : schedule.getTimes()) {
+                    // Если маршрут содержит текст (нестандартный маршрут), то извлекаем время
                     String cleanTime = time.replaceAll("[^0-9:]", "");
+
                     int timeMinutes = convertTimeToMinutes(cleanTime);
+
+                    // Найдено ближайшее время
                     if (timeMinutes >= currentTime) {
                         int waitTime = timeMinutes - currentTime;
                         if (waitTime < minWaitTime) {
                             minWaitTime = waitTime;
                         }
-                        break; // Найдено ближайшее время
+                        break;
                     }
                 }
             }
         }
+
         return minWaitTime == Integer.MAX_VALUE ? 0 : minWaitTime;
     }
 
@@ -84,11 +97,14 @@ public class DijkstraAlgorithm {
         List<Schedule> startSchedules = startVertex.getSchedules();
         List<Schedule> endSchedules = endVertex.getSchedules();
 
+        // Расчет времени в пути на основании расписания отправной остановки, конечной остановки и текущего времени
         for (Schedule startSchedule : startSchedules) {
             if (startSchedule.getRouteNumber().equals(edge.getRouteNumber())) {
                 for (String startTime : startSchedule.getTimes()) {
                     String cleanStartTime = startTime.replaceAll("[^0-9:]", "");
                     int startMinutes = convertTimeToMinutes(cleanStartTime);
+
+                    // Поиск ближайшего к имеющемуся времени в расписании
                     if (startMinutes >= currentTime) {
                         for (Schedule endSchedule : endSchedules) {
                             if (endSchedule.getRouteNumber().equals(edge.getRouteNumber())) {

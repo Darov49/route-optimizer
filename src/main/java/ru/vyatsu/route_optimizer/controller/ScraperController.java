@@ -27,19 +27,24 @@ public class ScraperController {
         String url = "https://m.cdsvyatka.com/";
         List<Route> routes = routeScraper.scrapeRoutes(url);
 
+        // Обработка всех маршрутов
         for (Route route : routes) {
             List<StopSchedule> stops = routeScraper.getStopsForRoute(route.getId());
 
+            // Обработка всех остановок для маршрута
             for (StopSchedule stop : stops) {
                 try {
                     String[] routeNameParts = route.getName().split(":");
                     String routeIdentifier = routeNameParts[0].split(" ")[1];
+
+                    // Обработка расписания для каждой остановки
                     List<String> schedule = routeScraper.getScheduleForStop(stop.getCode(), routeIdentifier);
                     stop.setSchedule(schedule);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                     routeScraper.closeDriver();
-                    return "Error occurred while scraping schedule for stop " + stop.getName() + " on route " + route.getName();
+                    return "Error occurred while scraping schedule for stop " + stop.getName()
+                            + " on route " + route.getName();
                 }
 
             }
@@ -47,6 +52,7 @@ public class ScraperController {
                 String[] routeNameParts = route.getName().split(":");
                 String fileName = routeNameParts[0].trim().replaceAll(" ", "_");
                 String filePath = "routes/" + fileName + ".json";
+
                 jsonUtil.writeStopsToJson(stops, filePath);
             } catch (IOException e) {
                 e.printStackTrace();

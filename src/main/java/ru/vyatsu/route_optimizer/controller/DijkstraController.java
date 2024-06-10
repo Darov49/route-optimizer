@@ -15,8 +15,8 @@ import ru.vyatsu.route_optimizer.bean.graph.Vertex;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.regex.Pattern;
 
 @RestController
 public class DijkstraController {
@@ -30,12 +30,16 @@ public class DijkstraController {
     }
 
     @GetMapping("/api/findShortestPath")
-    public PathResult findShortestPath(@RequestParam String startVertexId, @RequestParam String endVertexId, @RequestParam String startTime) {
+    public PathResult findShortestPath(@RequestParam String startVertexId,
+                                       @RequestParam String endVertexId,
+                                       @RequestParam String startTime) {
+
         DijkstraAlgorithm dijkstra = new DijkstraAlgorithm(graph);
         dijkstra.execute(startVertexId, startTime);
 
         List<String> path = dijkstra.getPath(endVertexId);
-        int totalTimeInMinutes = dijkstra.getTime(endVertexId) - dijkstra.getTime(startVertexId); // Разница между конечным и начальным временем
+        // Разница между конечным и начальным временем
+        int totalTimeInMinutes = dijkstra.getTime(endVertexId) - dijkstra.getTime(startVertexId);
 
         List<PathResult.StopInfo> detailedPath = new ArrayList<>();
         String previousRouteNumber = null;
@@ -45,19 +49,22 @@ public class DijkstraController {
         if (!path.isEmpty()) {
             String firstStopId = path.get(0);
             Vertex firstVertex = graph.getVertex(firstStopId);
+
             if (firstVertex != null) {
                 // Получаем данные для первой остановки
                 String routeNumber = dijkstra.getRouteNumber(path.get(1));
                 int waitTime = calculateWaitTime(firstVertex, routeNumber, currentTime);
                 String departureTime = convertMinutesToTime(currentTime + waitTime);
 
+                // Время прибытия на остановку, номер нового маршрута, время прибытия нового маршрута на остановку
                 String transferInfo = startTime + " -> " + routeNumber + " -> " + departureTime;
 
                 // Обновляем текущее время прибытия на следующую остановку
                 int travelTime = getNextTravelTime(firstVertex, routeNumber, currentTime + waitTime);
                 currentTime += waitTime + travelTime;
 
-                detailedPath.add(new PathResult.StopInfo(firstStopId, firstVertex.getName(), departureTime, routeNumber, transferInfo));
+                detailedPath.add(new PathResult.StopInfo(firstStopId, firstVertex.getName(), startTime, routeNumber,
+                        transferInfo));
                 previousRouteNumber = routeNumber;
             }
         }
@@ -66,10 +73,16 @@ public class DijkstraController {
         for (int i = 1; i < path.size(); i++) {
             String stopId = path.get(i);
             Vertex vertex = graph.getVertex(stopId);
-            if (vertex == null) continue;
+
+            if (vertex == null) {
+                continue;
+            }
 
             String arrivalTime = convertMinutesToTime(currentTime);
-            String routeNumber = (i < path.size() - 1) ? dijkstra.getRouteNumber(path.get(i + 1)) : null; // Номер маршрута, на котором уедем с данной остановки
+            // Выбор между новым маршрут, на котором уедем с данной остановки, и текущим маршрутом
+            String routeNumber = (i < path.size() - 1)
+                    ? dijkstra.getRouteNumber(path.get(i + 1))
+                    : previousRouteNumber;
 
             String transferInfo = null;
             if (previousRouteNumber != null && !previousRouteNumber.equals(routeNumber)) {
@@ -87,6 +100,13 @@ public class DijkstraController {
             }
         }
 
+        // Обработка последней остановки
+        if (!detailedPath.isEmpty()) {
+            PathResult.StopInfo lastStopInfo = detailedPath.getLast();
+            // Установка transferInfo в null для последней остановки
+            lastStopInfo.setTransferInfo(null);
+        }
+
         // Оптимизация пересадок
         detailedPath = optimizeTransfers(detailedPath);
 
@@ -97,7 +117,7 @@ public class DijkstraController {
 
     private List<PathResult.StopInfo> optimizeTransfers(List<PathResult.StopInfo> detailedPath) {
         List<PathResult.StopInfo> optimizedPath = new ArrayList<>();
-        String currentRouteNumber = null;
+        String currentRouteNumber;
         String previousRouteNumber = null;
 
         for (int i = 0; i < detailedPath.size(); i++) {
@@ -105,16 +125,18 @@ public class DijkstraController {
             currentRouteNumber = stopInfo.getRouteNumber();
 
             if (previousRouteNumber != null && previousRouteNumber.equals(currentRouteNumber)) {
-                // Пропустить пересадку, если вернулись на предыдущий маршрут
+                // Пропуск ненужной пересадки, если впоследствии вернулись на предыдущий маршрут
                 stopInfo.setTransferInfo(null);
                 stopInfo.setRouteNumber(previousRouteNumber);
+
             } else if (currentRouteNumber != null && i + 1 < detailedPath.size()) {
-                // Проверить если можем продолжить движение на текущем маршруте
+                // Проверка возможности продолжения движения на текущем маршруте
                 for (int j = i + 1; j < detailedPath.size(); j++) {
                     PathResult.StopInfo nextStopInfo = detailedPath.get(j);
                     if (currentRouteNumber.equals(nextStopInfo.getRouteNumber())) {
-                        // Проверить, проходит ли автобус через все остановки на данном участке
+                        // Проверка прохождения автобуса через все остановки на данном участке
                         boolean validRoute = true;
+
                         for (int k = i + 1; k <= j; k++) {
                             PathResult.StopInfo intermediateStop = detailedPath.get(k);
                             if (!isRouteValid(currentRouteNumber, intermediateStop.getStopId())) {
@@ -122,8 +144,9 @@ public class DijkstraController {
                                 break;
                             }
                         }
+
                         if (validRoute) {
-                            // Удалить ненужные пересадки между i и j
+                            // Удаление ненужной пересадки
                             for (int k = i + 1; k < j; k++) {
                                 detailedPath.get(k).setRouteNumber(currentRouteNumber);
                                 detailedPath.get(k).setTransferInfo(null);
@@ -133,6 +156,7 @@ public class DijkstraController {
                     }
                 }
             }
+
             optimizedPath.add(stopInfo);
             previousRouteNumber = currentRouteNumber;
         }
@@ -141,9 +165,12 @@ public class DijkstraController {
     }
 
     private boolean isRouteValid(String routeNumber, String stopId) {
-        // Проверить, проходит ли маршрут через данную остановку
+        // Проверка прохождения маршрута через данную остановку
         Vertex vertex = graph.getVertex(stopId);
-        if (vertex == null) return false;
+        if (vertex == null) {
+            return false;
+        }
+
         for (Schedule schedule : vertex.getSchedules()) {
             if (schedule.getRouteNumber().equals(routeNumber)) {
                 return true;
@@ -155,12 +182,11 @@ public class DijkstraController {
     private int calculateWaitTime(Vertex vertex, String routeNumber, int currentTime) {
         for (Schedule schedule : vertex.getSchedules()) {
             if (schedule.getRouteNumber().equals(routeNumber)) {
-                for (String time : schedule.getTimes()) {
-                    if (time.matches("\\d{2}:\\d{2}")) { // проверяем, что время в правильном формате
-                        int timeMinutes = convertTimeToMinutes(time);
-                        if (timeMinutes >= currentTime) {
-                            return timeMinutes - currentTime;
-                        }
+                Map<String, Integer> validTimes = getValidTimes(schedule);
+                for (Map.Entry<String, Integer> entry : validTimes.entrySet()) {
+                    if (entry.getValue() >= currentTime) {
+                        // Разница между текущим временем и временем прибытия маршрута на остановку
+                        return entry.getValue() - currentTime;
                     }
                 }
             }
@@ -174,6 +200,7 @@ public class DijkstraController {
             if (edge.getRouteNumber().equals(routeNumber)) {
                 Vertex endVertex = graph.getVertex(edge.getEndVertex());
                 if (endVertex != null) {
+                    // Время в пути между остановками
                     int edgeTravelTime = calculateTravelTime(vertex, endVertex, routeNumber, currentTime);
                     if (edgeTravelTime < travelTime) {
                         travelTime = edgeTravelTime;
@@ -185,8 +212,8 @@ public class DijkstraController {
     }
 
     private int calculateTravelTime(Vertex startVertex, Vertex endVertex, String routeNumber, int currentTime) {
-        List<String> startTimes = getScheduleTimes(startVertex, routeNumber);
-        List<String> endTimes = getScheduleTimes(endVertex, routeNumber);
+        Map<String, Integer> startTimes = getValidTimes(getSchedule(startVertex, routeNumber));
+        Map<String, Integer> endTimes = getValidTimes(getSchedule(endVertex, routeNumber));
 
         if (startTimes.isEmpty() || endTimes.isEmpty()) {
             return Integer.MAX_VALUE;
@@ -198,23 +225,47 @@ public class DijkstraController {
         return endTime - startTime;
     }
 
-    private List<String> getScheduleTimes(Vertex vertex, String routeNumber) {
-        for (Schedule schedule : vertex.getSchedules()) {
-            if (schedule.getRouteNumber().equals(routeNumber)) {
-                return schedule.getTimes();
+    private Map<String, Integer> getValidTimes(Schedule schedule) {
+        Map<String, Integer> validTimes = new LinkedHashMap<>();
+        // Паттерн для поиска времени в расписании
+        Pattern timePattern = Pattern.compile("^\\d{2}:\\d{2}$");
+
+        // Если имеется несколько записей с одним временем, и любая из них имеет текст (нестандартный маршрут),
+        // то игнорируем ее
+        Map<String, Boolean> timeWithTextMap = new HashMap<>();
+        for (String time : schedule.getTimes()) {
+            boolean hasText = !timePattern.matcher(time).matches();
+            timeWithTextMap.put(time, timeWithTextMap.getOrDefault(time, false) || hasText);
+        }
+
+        for (String time : schedule.getTimes()) {
+            if (Boolean.TRUE.equals(timeWithTextMap.get(time)) &&
+                    schedule.getTimes().stream().filter(t -> t.equals(time)).count() > 1) {
+                continue;
+            }
+            if (timePattern.matcher(time).matches()) {
+                validTimes.put(time, convertTimeToMinutes(time));
             }
         }
-        return new ArrayList<>();
+
+        return validTimes;
     }
 
-    private int findClosestTime(List<String> times, int currentTime) {
+    private Schedule getSchedule(Vertex vertex, String routeNumber) {
+        for (Schedule schedule : vertex.getSchedules()) {
+            if (schedule.getRouteNumber().equals(routeNumber)) {
+                return schedule;
+            }
+        }
+        return null;
+    }
+
+    private int findClosestTime(Map<String, Integer> times, int currentTime) {
         int closestTime = Integer.MAX_VALUE;
-        for (String time : times) {
-            if (time.matches("\\d{2}:\\d{2}")) { // проверяем, что время в правильном формате
-                int timeMinutes = convertTimeToMinutes(time);
-                if (timeMinutes >= currentTime && timeMinutes < closestTime) {
-                    closestTime = timeMinutes;
-                }
+        for (Map.Entry<String, Integer> entry : times.entrySet()) {
+            if (entry.getValue() >= currentTime && entry.getValue() < closestTime) {
+                // Поиск ближайшего к текущему времени из расписания
+                closestTime = entry.getValue();
             }
         }
         return closestTime;

@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @RestController
-public class GraphCreatorController {
+public class GraphBuilderController {
 
     private static final String DATA_DIRECTORY = "routes";
     private static final String OUTPUT_FILE = "graph.json";
@@ -30,7 +30,10 @@ public class GraphCreatorController {
 
         if (listOfFiles != null) {
             for (File file : listOfFiles) {
-                List<StopSchedule> stopSchedules = objectMapper.readValue(file, objectMapper.getTypeFactory().constructCollectionType(List.class, StopSchedule.class));
+                List<StopSchedule> stopSchedules = objectMapper.readValue(file,
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, StopSchedule.class));
+
+                // Объединение всех имеющихся расписаний в одно расписание для всех остановок
                 for (StopSchedule stopSchedule : stopSchedules) {
                     Vertex vertex = graph.getVertex(stopSchedule.getCode());
                     if (vertex == null) {
@@ -38,15 +41,12 @@ public class GraphCreatorController {
                         graph.addVertex(vertex);
                     }
 
-                    Schedule schedule = new Schedule(file.getName().replace(".json", ""), stopSchedule.getSchedule());
+                    Schedule schedule = new Schedule(file.getName().replace(".json", ""),
+                            stopSchedule.getSchedule());
                     vertex.getSchedules().add(schedule);
                 }
-            }
-        }
 
-        if (listOfFiles != null) {
-            for (File file : listOfFiles) {
-                List<StopSchedule> stopSchedules = objectMapper.readValue(file, objectMapper.getTypeFactory().constructCollectionType(List.class, StopSchedule.class));
+                // Создание ребер между остановками
                 for (int i = 0; i < stopSchedules.size() - 1; i++) {
                     StopSchedule currentStop = stopSchedules.get(i);
                     StopSchedule nextStop = stopSchedules.get(i + 1);
@@ -68,7 +68,9 @@ public class GraphCreatorController {
                     }
 
                     if (travelTimeCalculated) {
-                        Edge edge = new Edge(currentStop.getCode(), nextStop.getCode(), file.getName().replace(".json", ""), travelTime, 0, "", "");
+                        Edge edge = new Edge(currentStop.getCode(), nextStop.getCode(),
+                                file.getName().replace(".json", ""),
+                                travelTime, 0, "", "");
                         graph.addEdge(edge);
                     }
                 }
@@ -81,13 +83,13 @@ public class GraphCreatorController {
     }
 
     private int calculateTravelTime(String startTime, String endTime) {
-        String[] startParts = startTime.split(":");
-        String[] endParts = endTime.split(":");
-
-
-        int startMinutes = Integer.parseInt(startParts[0]) * 60 + Integer.parseInt(startParts[1]);
-        int endMinutes = Integer.parseInt(endParts[0]) * 60 + Integer.parseInt(endParts[1]);
-
+        int startMinutes = convertTimeToMinutes(startTime);
+        int endMinutes = convertTimeToMinutes(endTime);
         return endMinutes - startMinutes;
+    }
+
+    private int convertTimeToMinutes(String time) {
+        String[] parts = time.split(":");
+        return Integer.parseInt(parts[0]) * 60 + Integer.parseInt(parts[1]);
     }
 }
