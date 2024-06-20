@@ -4,6 +4,7 @@ import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import ru.vyatsu.route_optimizer.bean.Route;
 import ru.vyatsu.route_optimizer.bean.StopSchedule;
@@ -12,14 +13,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import static ru.vyatsu.route_optimizer.constant.StringConstants.*;
+
 @Service
 public class RouteScraper {
-
     private WebDriver driver;
+
+    @Value("${scraper.chromedriver}")
+    private String chromeDriverPath;
 
     private void initializeDriver() {
         if (this.driver == null) {
-            System.setProperty("webdriver.chrome.driver", "C:\\chrome driver\\chromedriver-win64\\chromedriver.exe");
+            System.setProperty("webdriver.chrome.driver", chromeDriverPath);
 
             this.driver = new ChromeDriver();
             driver.manage().timeouts().implicitlyWait(10, TimeUnit.SECONDS);
@@ -34,33 +39,33 @@ public class RouteScraper {
     }
 
 
-    public List<Route> scrapeRoutes(String url) {
+    public List<Route> scrapeRoutes() {
         initializeDriver();
         List<Route> routes = new ArrayList<>();
 
         try {
-            driver.get(url);
+            driver.get(CDSVYATKA_URL);
             Thread.sleep(200);
 
             // Список всех маршрутов
-            WebElement dropdown = driver.findElement(By.id("id_MarshSelect"));
-            List<WebElement> routeElements = dropdown.findElements(By.tagName("option"));
+            WebElement dropdown = driver.findElement(By.id(ID_ROUTE_SELECT));
+            List<WebElement> routeElements = dropdown.findElements(By.tagName(OPTION));
 
             // Получение информации о каждом маршруте
             for (WebElement element : routeElements) {
-                String value = element.getAttribute("value");
+                String value = element.getAttribute(VALUE);
                 String text = element.getText();
 
                 // Опция "Все маршруты"
-                if (value.equals("-1")) {
+                if (value.equals(INVALID_VALUE) || !text.startsWith(TROLLEYBUS) && !text.startsWith(BUS)) {
                     continue;
                 }
 
-                if (text.startsWith("Тролл") || (text.startsWith("Авт") && text.matches("Авт \\d{1,2}:.*"))) {
-                    routes.add(new Route(value, text));
-                } else if (text.startsWith("Авт") && text.matches("Авт \\d{3,}:.*")) {
+                if (text.startsWith(BUS) && !text.matches("Авт \\d{2,}:.*")) {
                     break;
                 }
+
+                routes.add(new Route(value, text));
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -75,22 +80,22 @@ public class RouteScraper {
 
         try {
             // Выбор конкретного маршрута
-            WebElement dropdown = driver.findElement(By.id("id_MarshSelect"));
+            WebElement dropdown = driver.findElement(By.id(ID_ROUTE_SELECT));
             WebElement routeOption = dropdown.findElement(By.xpath("//option[@value='" + routeId + "']"));
             routeOption.click();
             Thread.sleep(200);
 
             // Список остановок для заданного маршрута
-            WebElement stopDropdown = driver.findElement(By.id("id_StopSelect"));
-            List<WebElement> stopElements = stopDropdown.findElements(By.tagName("option"));
+            WebElement stopDropdown = driver.findElement(By.id(ID_STOP_SELECT));
+            List<WebElement> stopElements = stopDropdown.findElements(By.tagName(OPTION));
 
             // Получение информации о всех остановках для данного маршрута
             for (WebElement element : stopElements) {
-                String value = element.getAttribute("value");
+                String value = element.getAttribute(VALUE);
                 String text = element.getText();
 
                 // Опция "Все остановки"
-                if (value.equals("-1")) {
+                if (value.equals(INVALID_VALUE)) {
                     continue;
                 }
 
@@ -113,15 +118,15 @@ public class RouteScraper {
 
         try {
             // Список остановок для заданного маршрута
-            WebElement stopDropdown = driver.findElement(By.id("id_StopSelect"));
-            List<WebElement> stopOptions = stopDropdown.findElements(By.tagName("option"));
+            WebElement stopDropdown = driver.findElement(By.id(ID_STOP_SELECT));
+            List<WebElement> stopOptions = stopDropdown.findElements(By.tagName(OPTION));
 
             // Игнорирование опции "Все остановки" и обработка остановок
             for (int i = 2; i <= stopOptions.size(); i++) {
                 WebElement stopOption = stopDropdown.findElement(By.xpath(
                         "//*[@id='id_StopSelect']/option[" + i + "]"));
                 // Выбор конкретной остановки
-                if (stopOption.getAttribute("value").equals(stopId)) {
+                if (stopOption.getAttribute(VALUE).equals(stopId)) {
                     stopOption.click();
                     break;
                 }
@@ -129,11 +134,11 @@ public class RouteScraper {
             Thread.sleep(200);
 
             // Кнопка "Показать расписание"
-            WebElement scheduleButton = driver.findElement(By.id("id_buttonRaspis"));
+            WebElement scheduleButton = driver.findElement(By.id(ID_BUTTON_SCHEDULE));
             scheduleButton.click();
             Thread.sleep(200);
 
-            String routeTableId = "tbl_div_marsh_name_" + routeName;
+            String routeTableId = SCHEDULE_TABLE_NAME + routeName;
 
             // Таблица расписания
             List<WebElement> rows = driver.findElements(By.xpath("//*[@id='" + routeTableId

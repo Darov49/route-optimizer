@@ -4,11 +4,13 @@ import ru.vyatsu.route_optimizer.bean.graph.Edge;
 import ru.vyatsu.route_optimizer.bean.graph.Graph;
 import ru.vyatsu.route_optimizer.bean.graph.Schedule;
 import ru.vyatsu.route_optimizer.bean.graph.Vertex;
+import ru.vyatsu.route_optimizer.constant.StringConstants;
 
 import java.util.*;
 
-public class DijkstraAlgorithm {
+import static ru.vyatsu.route_optimizer.constant.StringConstants.NON_TIME_PATTERN;
 
+public class DijkstraAlgorithm {
     private final Graph graph;
     private final Map<String, Integer> distances;
     private final Map<String, String> previous;
@@ -42,25 +44,27 @@ public class DijkstraAlgorithm {
 
             int currentTime = distances.getOrDefault(currentVertex.getId(), Integer.MAX_VALUE);
 
-            if (graph.getEdges().containsKey(currentVertex.getId())) {
-                for (Edge edge : graph.getEdges().get(currentVertex.getId())) {
-                    Vertex nextVertex = graph.getVertex(edge.getEndVertex());
-                    if (nextVertex == null) {
-                        continue;
-                    }
+            if (!graph.getEdges().containsKey(currentVertex.getId())) {
+                continue;
+            }
 
-                    // Расчет времени ожидания маршрута (в случае пересадки) и времени в пути
-                    int waitTime = calculateWaitTime(currentVertex, edge, currentTime);
-                    int travelTime = calculateTravelTime(currentVertex, nextVertex, edge, currentTime);
-                    int newDist = currentTime + waitTime + travelTime;
+            for (Edge edge : graph.getEdges().get(currentVertex.getId())) {
+                Vertex nextVertex = graph.getVertex(edge.getEndVertex());
+                if (nextVertex == null) {
+                    continue;
+                }
 
-                    // Новый путь оптимальнее
-                    if (travelTime > 0 && newDist < distances.getOrDefault(nextVertex.getId(), Integer.MAX_VALUE)) {
-                        distances.put(nextVertex.getId(), newDist);
-                        previous.put(nextVertex.getId(), currentVertex.getId());
-                        routeNumbers.put(nextVertex.getId(), edge.getRouteNumber());
-                        queue.add(nextVertex);
-                    }
+                // Расчет времени ожидания маршрута (в случае пересадки) и времени в пути
+                int waitTime = calculateWaitTime(currentVertex, edge, currentTime);
+                int travelTime = calculateTravelTime(currentVertex, nextVertex, edge, currentTime);
+                int newDist = currentTime + waitTime + travelTime;
+
+                // Новый путь оптимальнее
+                if (travelTime > 0 && newDist < distances.getOrDefault(nextVertex.getId(), Integer.MAX_VALUE)) {
+                    distances.put(nextVertex.getId(), newDist);
+                    previous.put(nextVertex.getId(), currentVertex.getId());
+                    routeNumbers.put(nextVertex.getId(), edge.getRouteNumber());
+                    queue.add(nextVertex);
                 }
             }
         }
@@ -71,21 +75,24 @@ public class DijkstraAlgorithm {
         int minWaitTime = Integer.MAX_VALUE;
 
         for (Schedule schedule : schedules) {
-            if (schedule.getRouteNumber().equals(edge.getRouteNumber())) {
-                for (String time : schedule.getTimes()) {
-                    // Если маршрут содержит текст (нестандартный маршрут), то извлекаем время
-                    String cleanTime = time.replaceAll("[^0-9:]", "");
 
-                    int timeMinutes = convertTimeToMinutes(cleanTime);
+            if (!schedule.getRouteNumber().equals(edge.getRouteNumber())) {
+                continue;
+            }
 
-                    // Найдено ближайшее время
-                    if (timeMinutes >= currentTime) {
-                        int waitTime = timeMinutes - currentTime;
-                        if (waitTime < minWaitTime) {
-                            minWaitTime = waitTime;
-                        }
-                        break;
+            for (String time : schedule.getTimes()) {
+                // Если маршрут содержит текст (нестандартный маршрут), то извлекаем время
+                String cleanTime = time.replaceAll(NON_TIME_PATTERN, "");
+
+                int timeMinutes = convertTimeToMinutes(cleanTime);
+
+                // Найдено ближайшее время
+                if (timeMinutes >= currentTime) {
+                    int waitTime = timeMinutes - currentTime;
+                    if (waitTime < minWaitTime) {
+                        minWaitTime = waitTime;
                     }
+                    break;
                 }
             }
         }
@@ -99,29 +106,37 @@ public class DijkstraAlgorithm {
 
         // Расчет времени в пути на основании расписания отправной остановки, конечной остановки и текущего времени
         for (Schedule startSchedule : startSchedules) {
-            if (startSchedule.getRouteNumber().equals(edge.getRouteNumber())) {
-                for (String startTime : startSchedule.getTimes()) {
-                    String cleanStartTime = startTime.replaceAll("[^0-9:]", "");
-                    int startMinutes = convertTimeToMinutes(cleanStartTime);
+            if (!startSchedule.getRouteNumber().equals(edge.getRouteNumber())) {
+                continue;
+            }
 
-                    // Поиск ближайшего к имеющемуся времени в расписании
-                    if (startMinutes >= currentTime) {
-                        for (Schedule endSchedule : endSchedules) {
-                            if (endSchedule.getRouteNumber().equals(edge.getRouteNumber())) {
-                                for (String endTime : endSchedule.getTimes()) {
-                                    String cleanEndTime = endTime.replaceAll("[^0-9:]", "");
-                                    int endMinutes = convertTimeToMinutes(cleanEndTime);
-                                    if (endMinutes > startMinutes) {
-                                        return endMinutes - startMinutes;
-                                    }
-                                }
-                            }
+            for (String startTime : startSchedule.getTimes()) {
+                String cleanStartTime = startTime.replaceAll(NON_TIME_PATTERN, "");
+                int startMinutes = convertTimeToMinutes(cleanStartTime);
+
+                if (startMinutes < currentTime) {
+                    continue;
+                }
+
+                // Поиск ближайшего к имеющемуся времени в расписании
+                for (Schedule endSchedule : endSchedules) {
+                    if (!endSchedule.getRouteNumber().equals(edge.getRouteNumber())) {
+                        continue;
+                    }
+
+                    for (String endTime : endSchedule.getTimes()) {
+                        String cleanEndTime = endTime.replaceAll(NON_TIME_PATTERN, "");
+                        int endMinutes = convertTimeToMinutes(cleanEndTime);
+
+                        if (endMinutes > startMinutes) {
+                            return endMinutes - startMinutes;
                         }
                     }
                 }
             }
         }
-        return Integer.MAX_VALUE; // Если нет подходящего времени, возвращаем максимум
+
+        return Integer.MAX_VALUE; // не найдено подходящее время
     }
 
     private int convertTimeToMinutes(String time) {
@@ -134,6 +149,7 @@ public class DijkstraAlgorithm {
         for (String vertexId = endVertexId; vertexId != null; vertexId = previous.get(vertexId)) {
             path.add(vertexId);
         }
+
         Collections.reverse(path);
         return path;
     }
@@ -143,6 +159,6 @@ public class DijkstraAlgorithm {
     }
 
     public String getRouteNumber(String vertexId) {
-        return routeNumbers.getOrDefault(vertexId, "Unknown");
+        return routeNumbers.getOrDefault(vertexId, StringConstants.UNKNOWN_ROUTE_NUMBER);
     }
 }

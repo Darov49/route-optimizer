@@ -1,5 +1,6 @@
 package ru.vyatsu.route_optimizer.controller;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import ru.vyatsu.route_optimizer.JsonUtil;
@@ -7,25 +8,35 @@ import ru.vyatsu.route_optimizer.bean.Route;
 import ru.vyatsu.route_optimizer.bean.StopSchedule;
 import ru.vyatsu.route_optimizer.scraper.RouteScraper;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+
+import static ru.vyatsu.route_optimizer.constant.StringConstants.JSON_FILE_EXTENSION;
 
 @RestController
 public class ScraperController {
 
     private final RouteScraper routeScraper;
 
-    private final JsonUtil jsonUtil;
+    @Value("${routes.directory}")
+    private String routesDirectory;
 
-    public ScraperController(RouteScraper routeScraper, JsonUtil jsonUtil) {
+    public ScraperController(RouteScraper routeScraper) {
         this.routeScraper = routeScraper;
-        this.jsonUtil = jsonUtil;
     }
 
     @GetMapping("/api/scrapeRoutes")
     public String scrapeRoutes() {
-        String url = "https://m.cdsvyatka.com/";
-        List<Route> routes = routeScraper.scrapeRoutes(url);
+        List<Route> routes = routeScraper.scrapeRoutes();
+
+        // Создаем директорию, если она не существует
+        File directory = new File(routesDirectory);
+        if (!directory.exists()) {
+            directory.mkdirs();
+        }
 
         // Обработка всех маршрутов
         for (Route route : routes) {
@@ -50,10 +61,9 @@ public class ScraperController {
             }
             try {
                 String[] routeNameParts = route.getName().split(":");
-                String fileName = routeNameParts[0].trim().replaceAll(" ", "_");
-                String filePath = "routes/" + fileName + ".json";
-
-                jsonUtil.writeStopsToJson(stops, filePath);
+                String fileName = routeNameParts[0].trim().replace(" ", "_");
+                Path filePath = Paths.get(routesDirectory, fileName + JSON_FILE_EXTENSION);
+                JsonUtil.writeStopsToJson(stops, filePath.toString());
             } catch (IOException e) {
                 e.printStackTrace();
                 routeScraper.closeDriver();
